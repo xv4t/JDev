@@ -16,7 +16,7 @@ struct Args{
 #[derive(Subcommand)]
 enum Subs {
     New{
-        #[arg(short, long, value_delimiter = ',', num_args=0..)]
+        #[arg(long, value_delimiter = ',', num_args=1.., required= true)]
         tags: Vec<String>,
         #[arg(short, long)]
         title: String,
@@ -26,13 +26,13 @@ enum Subs {
     Del{
         #[arg(short, long, conflicts_with = "tags")]
         id: Option<u64>,
-        #[arg(short, long, value_delimiter = ',', conflicts_with = "id", num_args=1..)]
+        #[arg(long, value_delimiter = ',', conflicts_with = "id", num_args=1..)]
         tags: Option<Vec<String>>,
     }, 
     Update{
         #[arg(short, long)]
         id: u64,
-        #[arg(short, long, value_delimiter= ',', num_args=0..)]
+        #[arg(long, value_delimiter= ',', num_args=0..)]
         tags: Option<Vec<String>>, 
         #[arg(short, long)]
         title: Option<String>,
@@ -53,11 +53,7 @@ fn main() {
             println!("=== NEW ===");
             println!("  title      : {title}");
             println!("  description: {description}");
-            if tags.is_empty() {
-                println!("  tags       : (none)");
-            } else {
-                println!("  tags       : {}", tags.join(", "));
-            }
+            println!("  tags       : {}", tags.join(", "));
         }
 
         Subs::Del { id, tags } => {
