@@ -11,6 +11,22 @@ pub async fn new_log_query(title: &str, description: &str, pool: Arc<Pool<Postgr
     Ok(result.0)
 }
 
+pub async fn check_for_log(id: i32, pool:Arc<Pool<Postgres>>)-> Result<bool, sqlx::Error>{
+    let found: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM logs WHERE id = $1 AND is_deleted != TRUE)")
+    .bind(id)
+    .fetch_one(&*pool).await?;
+
+    Ok(found)
+}
+
+pub async fn delete_log(id: i32, pool: Arc<Pool<Postgres>>)-> Result<(), sqlx::Error>{
+    sqlx::query("UPDATE logs SET is_deleted = TRUE WHERE id = $1;")
+    .bind(id)
+    .execute(&*pool).await?;
+
+    Ok(())
+}
+
 pub async fn check_for_tag_query(tag: &str, pool: Arc<Pool<Postgres>>)-> Result<Option<(i32,)>, sqlx::Error>{
     let found: Option<(i32,)> = sqlx::query_as("SELECT id FROM tags WHERE name = $1;")
     .bind(tag).fetch_optional(&*pool).await?;

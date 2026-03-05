@@ -26,13 +26,13 @@ pub enum Subs {
     },
     Del{
         #[arg(short, long, conflicts_with = "tags")]
-        id: Option<u64>,
+        id: Option<i32>,
         #[arg(long, value_delimiter = ',', conflicts_with = "id", num_args=1..)]
         tags: Option<Vec<String>>,
     }, 
     Update{
         #[arg(short, long)]
-        id: u64,
+        id: i32,
         #[arg(long, value_delimiter= ',', num_args=0..)]
         tags: Option<Vec<String>>, 
         #[arg(short, long)]
