@@ -9,18 +9,16 @@ pub async fn handle(cmd: Args, pool: Arc<Pool<Postgres>>)-> Result<(), sqlx::Err
         Subs::New { tags, title, description }=> {
             //self explanatory..
             let lower_case_tags: Vec<String>=tags.iter().map(|t| t.to_lowercase()).collect();
-            // what join_all eo
-            // 1. `join_all` wraps all futures into one combined future
-            // 2. `.await` hands that combined future to the **tokio runtime**
-            // 3. The runtime **polls all futures concurrently** within the current task
-            // 4. Each future runs until it hits its own `.await` (like a DB call or HTTP request), then **yields** back
-            // 5. The runtime keeps polling whichever futures are ready
-            // 6. Once **all** futures complete, `join_all` collects all results into a `Vec` and returns it
-            let in_db = try_join_all(lower_case_tags.iter().map(
-                |name| queries::check_for_tag_query(name, pool.clone())
-            )).await?.iter();
-            let new_tags: Vec<String>=lower_case_tags.iter().filter(|| );
-
+            //checks if a tag exists, if so, it's id gets returned, else it is created and its id gets returned
+            let tags_ids = try_join_all(lower_case_tags.iter().map(
+                |name| queries::exists_or_create_tag(name, pool.clone())
+            )).await?;
+            //create the log
+            let new_log = queries::new_log_query(title, description, pool.clone())
+                .await?;
+            //create the relation between a log and its tags;
+            let _= try_join_all(tags_ids.iter().map(|tag_id| 
+                queries::log_tag_register_relation(new_log, *tag_id, pool.clone()))).await?;
             Ok(())
         },
         Subs::Del { id, tags }=> {

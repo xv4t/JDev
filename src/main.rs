@@ -15,7 +15,7 @@ async fn main() -> Result<(), sqlx::Error>{
 
 
     let cli = commands::Args::parse();
-    handlers::handle(cli, pool.clone());
+    handlers::handle(cli, pool.clone()).await?;
 
     Ok(())
 }
