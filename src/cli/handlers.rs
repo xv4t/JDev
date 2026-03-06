@@ -1,5 +1,6 @@
 use super::commands::{Args, Subs};
 use super::super::db::queries;
+use core::fmt;
 use std::sync::Arc;
 use sqlx::{Pool, Postgres};
 use futures::future::try_join_all;
@@ -34,28 +35,41 @@ pub async fn handle(cmd: Args, pool: Arc<Pool<Postgres>>)-> Result<(), sqlx::Err
                     }
                     //confirming deletion
                     println!("confirm deletion? [Y/N] :");
-                    let mut confirmation = String::new();
-                    'outer: loop {
-                        std::io::stdin().read_line(&mut confirmation).expect("Failed to read line");
-                        let confirmation = confirmation.trim().chars().next();
-                        match confirmation{
-                            Some(c) => {
-                                if c.to_ascii_lowercase()=='y' {break 'outer;}
-                                else if c.to_ascii_lowercase()=='n' {
-                                    println!("deleting canceled");
-                                    return Ok(());
-                                } 
-                                else {println!("invalid input. please enter 'y' for yes or 'n' for no.");}
-                            },
-                            None => {println!("no character entered. please enter 'y' for yes or 'n' for no.");}
+                    let mut counter =1;
+                    'outer: loop{
+                        let answer = confirm();
+                        println!("{answer}");
+                        match answer{
+                            Confirmation::Confirmed => break 'outer,
+                            Confirmation::Canceled => return Ok(()),
+                            Confirmation::Invalid => {
+                                if counter == 3 {return Ok(());}
+                                counter+=1
+                            }
                         }
-                    }
+                    }   
                     //soft delete the log
                     queries::delete_log(*id, pool.clone()).await?;
                 }
                 //delete all logs with a tag/multiple tags
                 (_, Some(tags)) => {
-                    println!("  deleting items matching tags: {}", tags.join(", "));
+                    println!("deleting items matching tags: {} , non existing tags will be ignored", tags.join(", "));
+                    let lower_case_tags: Vec<String>=tags.iter().map(|t| t.to_lowercase()).collect();
+                    //get IDs of existing tags
+                    let tags_check_result = try_join_all(lower_case_tags.iter().map(|tag|
+                        queries::check_for_tag_query(tag, pool.clone()))).await?;
+                    let existing_tags_ids: Vec<i32> = tags_check_result.iter().map(
+                        |result| 
+                        match result{
+                            Some(id) => (id.0, true),
+                            None => (0, false)
+                        }
+                    ).filter(|(_,found)|*found)
+                    .map(|(id, _)| id).collect();
+                    //get logs with any of those tags
+                    let logs = queries::get_logs_by_tags(existing_tags_ids, pool.clone()).await?;
+                    let _=try_join_all(logs.iter().map(|log|
+                        queries::delete_log(log.0, pool.clone()))).await?;
                 }
                 //error if neither were specified
                 (None, None) => {
@@ -77,6 +91,39 @@ pub async fn handle(cmd: Args, pool: Arc<Pool<Postgres>>)-> Result<(), sqlx::Err
         Subs::Get {}=> {
             println!("getting your logs from newest to oldest");
             Ok(())
+        }
+    }
+}
+
+#[non_exhaustive]
+enum Confirmation{
+    Confirmed,
+    Canceled,
+    Invalid,
+}
+
+impl fmt::Display for Confirmation{
+    fn fmt(&self, f: &mut fmt::Formatter)-> fmt::Result{
+        match self{
+            Confirmation::Confirmed => write!(f, "Confirmed"),
+            Confirmation::Canceled => write!(f, "Canceled"),
+            Confirmation::Invalid => write!(f, "invalid input. please enter 'y' for yes or 'n' for no."),
+        }
+    }
+}
+
+fn confirm()-> Confirmation{
+    let mut confirmation = String::new();
+    loop {
+        std::io::stdin().read_line(&mut confirmation).expect("Failed to read line");
+        let confirmation = confirmation.trim().chars().next();
+        match confirmation{
+            Some(c) => {
+                if c.to_ascii_lowercase()=='y' {return Confirmation::Confirmed}
+                else if c.to_ascii_lowercase()=='n' {return Confirmation::Canceled;} 
+                else {return Confirmation::Invalid;}
+            },
+            None => {return Confirmation::Invalid;}
         }
     }
 }

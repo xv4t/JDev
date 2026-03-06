@@ -1,5 +1,5 @@
 use sqlx::{Pool, Postgres};
-use std::sync::Arc;
+use std:: sync::Arc;
 
 pub async fn new_log_query(title: &str, description: &str, pool: Arc<Pool<Postgres>>)
 -> Result<i32, sqlx::Error>{
@@ -61,4 +61,15 @@ pub async fn log_tag_register_relation(log_id: i32, tag_id: i32, pool: Arc<Pool<
         .await?;
 
     Ok(result.0)
+}
+
+pub async fn get_logs_by_tags(tags_ids: Vec<i32>, pool: Arc<Pool<Postgres>>)-> Result<Vec<(i32,)>, sqlx::Error>{
+    let result: Vec<(i32,)> = sqlx::query_as(
+        "SELECT id FROM logs WHERE EXISTS(
+            SELECT 1 FROM logs_tags WHERE logs_tags.log_id = logs.id AND logs_tags.tag_id = ANY($1)    
+        );"
+    )
+    .bind(tags_ids.as_slice())
+    .fetch_all(&*pool).await?;
+    Ok(result)
 }
