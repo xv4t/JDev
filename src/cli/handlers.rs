@@ -4,6 +4,7 @@ use core::fmt;
 use std::sync::Arc;
 use sqlx::{Pool, Postgres};
 use futures::future::try_join_all;
+use std::io::{self, Write};
 
 pub async fn handle(cmd: Args, pool: Arc<Pool<Postgres>>)-> Result<(), sqlx::Error>{
     match cmd.get_sub(){
@@ -29,12 +30,13 @@ pub async fn handle(cmd: Args, pool: Arc<Pool<Postgres>>)-> Result<(), sqlx::Err
                 //delete with log id 
                 (Some(id), _) => {
                     //check if a log with the provided id exists in DB
-                    if !queries::check_for_log(*id, pool.clone()).await? {
+                    if !(queries::check_for_log(*id, pool.clone()).await?) {
                         eprintln!("Error: no log with the provided id");
                         std::process::exit(1);
                     }
                     //confirming deletion
-                    println!("confirm deletion? [Y/N] :");
+                    print!("confirm deletion? [Y/N] :");
+                    io::stdout().flush().unwrap();
                     let mut counter =1;
                     'outer: loop{
                         let answer = confirm();
@@ -55,9 +57,30 @@ pub async fn handle(cmd: Args, pool: Arc<Pool<Postgres>>)-> Result<(), sqlx::Err
                 (_, Some(tags)) => {
                     println!("deleting items matching tags: {} , non existing tags will be ignored", tags.join(", "));
                     let lower_case_tags: Vec<String>=tags.iter().map(|t| t.to_lowercase()).collect();
-                    //get IDs of existing tags
+                    //get IDs of existing tags and None for non-existing ones
                     let tags_check_result = try_join_all(lower_case_tags.iter().map(|tag|
                         queries::check_for_tag_query(tag, pool.clone()))).await?;
+                    if tags_check_result.is_empty(){
+                        eprintln!("no valid tags were provided");
+                        return Ok(());
+                    }
+                    //confirm deletion
+                    print!("confirm deletion? [Y/N] :");
+                    io::stdout().flush().unwrap();
+                    let mut counter =1;
+                    'outer: loop{
+                        let answer = confirm();
+                        println!("{answer}");
+                        match answer{
+                            Confirmation::Confirmed => break 'outer,
+                            Confirmation::Canceled => return Ok(()),
+                            Confirmation::Invalid => {
+                                if counter == 3 {return Ok(());}
+                                counter+=1
+                            }
+                        }
+                    } 
+                    //filter out non-existing tags
                     let existing_tags_ids: Vec<i32> = tags_check_result.iter().map(
                         |result| 
                         match result{
