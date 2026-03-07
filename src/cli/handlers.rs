@@ -31,7 +31,7 @@ pub async fn handle(cmd: Args, pool: Arc<Pool<Postgres>>)-> Result<(), sqlx::Err
                 (Some(id), _) => {
                     //check if a log with the provided id exists in DB
                     if !(queries::check_for_log(*id, pool.clone()).await?) {
-                        eprintln!("Error: no log with the provided id");
+                        eprintln!("Error: no log with id {id}");
                         std::process::exit(1);
                     }
                     //confirming deletion
@@ -104,10 +104,59 @@ pub async fn handle(cmd: Args, pool: Arc<Pool<Postgres>>)-> Result<(), sqlx::Err
         },
 
         Subs::Update { id, tags, title, description}=> {
-            println!("  id: {id}");
-            if let Some(t) = title       { println!("  new title      : {t}"); }
-            if let Some(d) = description { println!("  new description: {d}"); }
-            if let Some(ts) = tags       { println!("  new tags       : {}", ts.join(", ")); }
+            //check if a log with the id exists in DB and if anything was to edit
+            let mut log = match queries::get_log_by_id(*id, pool.clone()).await?{
+                Some(result) => result,
+                None =>{
+                    eprintln!("no log with id {id} exists");
+                    std::process::exit(1);
+                }
+            };
+            if let(None, None, None) = (tags, title, description) {
+                eprintln!("nothing to edit");
+                return Ok(());
+            }
+            //confirm updating
+            print!("confirm upadte? [Y/N] :");
+            io::stdout().flush().unwrap();
+            let mut counter =1;
+            'outer: loop{
+                let answer = confirm();
+                println!("{answer}");
+                match answer{
+                    Confirmation::Confirmed => break 'outer,
+                    Confirmation::Canceled => return Ok(()),
+                    Confirmation::Invalid => {
+                        if counter == 3 {return Ok(());}
+                        counter+=1
+                    }
+                }
+            }
+            //edit title and content if provided 
+            if let Some(t) = title {log.set_title(t.to_string());}
+            if let Some(d) = description {log.set_description(d.to_string());}
+            queries::update_log(log, pool.clone()).await?;
+            //if no tags were provided the task ends
+            if let None = tags {return Ok(());}
+            //create and get new tags IDs
+            let tags = tags.as_ref().unwrap();
+            let lower_case_tags: Vec<String>=tags.iter().map(|t| t.to_lowercase()).collect();        
+            let new_tags_ids = try_join_all(lower_case_tags.iter().map(
+                |name| queries::exists_or_create_tag(name, pool.clone())
+            )).await?;
+            //get origianl log tags
+            let original_tags_ids :Vec<i32>= queries::get_tags_by_log(*id, pool.clone()).await?
+                .iter().map(|i| i.0).collect();
+            //figure which tags to add to the log and which to remove
+            let mut to_add: Vec<i32> = Vec::new();
+            for i in new_tags_ids.iter()  {if !original_tags_ids.contains(i) {to_add.push(*i);} }
+            let mut to_delete: Vec<i32> = Vec::new();
+            for i in original_tags_ids  {if !new_tags_ids.contains(&i) {to_delete.push(i);} }
+
+            try_join_all(to_delete.iter().map(|i: &i32| 
+                queries::log_tag_delete_realtion(*id, *i, pool.clone()))).await?;
+            try_join_all(to_add.iter().map(|i|
+                queries::log_tag_register_relation(*id, *i, pool.clone()))).await?;
             Ok(())
         },
 
